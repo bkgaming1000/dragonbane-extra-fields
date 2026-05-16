@@ -10,10 +10,15 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
 
   const $html = html instanceof jQuery ? html : $(html);
 
-  const $skillsTab = $html.find('[data-tab="skills"]').first();
+  // Target the content div specifically (has both classes), not the nav link
+  const $skillsTab = $html.find('div.tab[data-tab="skills"]').first();
+
   if (dbeScrollTop > 0) {
     $skillsTab.scrollTop(dbeScrollTop);
   }
+
+  // Bail out if we've already injected (prevents double injection on re-render)
+  if ($skillsTab.find(".dbe-way-affinities").length) return;
 
   const affinities = [
     "Blood", "Wood", "Bone", "Iron", "Fire",
@@ -39,29 +44,23 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     });
   }
 
-  // Sniff the colour scheme from an existing skill row so we match exactly
-  const existingSkillRow = $html.find("tr.skill-item, tr.weapon-item, tbody tr").not(".sheet-table-header").first();
-  const rowBg    = existingSkillRow.css("background-color") || "transparent";
-  const rowColor = existingSkillRow.css("color") || "#f0e6d3";
-
-  // Sniff the header style from an existing sheet-table-header
-  const existingHeader = $html.find("tr.sheet-table-header").first();
-  const headerBg     = existingHeader.css("background-color") || "#5a3e2b";
+  // Sniff styles from existing elements
+  const existingHeader = $skillsTab.find("tr.sheet-table-header").first();
   const headerColor  = existingHeader.css("color") || "#f0e6d3";
+  const headerBg     = existingHeader.css("background-color") || "#5a3e2b";
   const headerBgImg  = existingHeader.css("background-image") || "none";
 
   const rowsHTML = affinities.map((name, i) => {
     const key   = `affinity_${name.toLowerCase()}`;
     const value = f[key] ?? 0;
-    // Alternate row shading to match other tables
     const bg = i % 2 === 0 ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.08)";
     return `
       <tr class="dbe-affinity-row" style="background:${bg};">
-        <td style="padding:3px 6px; color:${rowColor}; width:100%;">
+        <td style="padding:3px 6px; color:${headerColor}; width:100%;">
           <a class="dbe-roll-affinity rollable"
              data-flag="${key}"
              data-name="${name}"
-             style="cursor:pointer; color:${rowColor}; text-decoration:none;">
+             style="cursor:pointer; color:${headerColor}; text-decoration:none;">
             ${name}
           </a>
         </td>
@@ -76,7 +75,7 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
             style="
               width: 44px;
               text-align: center;
-              color: ${rowColor};
+              color: ${headerColor};
               background: rgba(255,255,255,0.1);
               border: 1px solid rgba(255,255,255,0.25);
               border-radius: 3px;
@@ -109,30 +108,32 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     </table>
   `;
 
-  const weaponTable = $html.find("th.text-header").filter(function() {
+  // Scope the weapon skills search to the skills tab content div only
+  const weaponTable = $skillsTab.find("th.text-header").filter(function() {
     return $(this).text().toLowerCase().includes("weapon");
-  }).closest("table");
+  }).closest("table").first();
 
   if (weaponTable.length) {
     weaponTable.after(boxHTML);
+    console.log("DBE | Way Affinities inserted after Weapon Skills.");
   } else {
     $skillsTab.append(boxHTML);
     console.warn("DBE | Fallback used — appended to skills tab.");
   }
 
-  $html.find(".dbe-affinity-value").on("change", async (event) => {
+  $skillsTab.find(".dbe-affinity-value").on("change", async (event) => {
     dbeScrollTop = $skillsTab.scrollTop();
     const key   = event.currentTarget.dataset.flag;
     const value = parseInt(event.currentTarget.value) || 0;
     await actor.setFlag("dragonbane-extra-fields", `custom.${key}`, value);
   });
 
-  $html.find(".dbe-roll-affinity").on("click", async (event) => {
+  $skillsTab.find(".dbe-roll-affinity").on("click", async (event) => {
     event.preventDefault();
     const key   = event.currentTarget.dataset.flag;
     const name  = event.currentTarget.dataset.name;
     const value = parseInt(
-      $html.find(`.dbe-affinity-value[data-flag="${key}"]`).val()
+      $skillsTab.find(`.dbe-affinity-value[data-flag="${key}"]`).val()
     ) || 0;
     await rollAffinity(name, value);
   });
