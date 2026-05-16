@@ -2,6 +2,20 @@ console.log("DBE | Script file loaded!");
 
 let dbeScrollTop = 0;
 
+// Pairs: changing one auto-sets the other to 20 - value
+const AFFINITY_PAIRS = {
+  "affinity_blood":    "affinity_stone",
+  "affinity_stone":    "affinity_blood",
+  "affinity_wood":     "affinity_iron",
+  "affinity_iron":     "affinity_wood",
+  "affinity_bone":     "affinity_fire",
+  "affinity_fire":     "affinity_bone",
+  "affinity_darkness": "affinity_light",
+  "affinity_light":    "affinity_darkness",
+  "affinity_chaos":    "affinity_order",
+  "affinity_order":    "affinity_chaos",
+};
+
 Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
   if (app.actor?.type !== "character") return;
 
@@ -97,7 +111,8 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
   const rowsHTML = affinities.map(name => {
     const valueKey = `affinity_${name.toLowerCase()}`;
     const checkKey = `affinity_check_${name.toLowerCase()}`;
-    const value   = f[valueKey] ?? 0;
+    // Default to 10 visually — only persisted once the player changes a value
+    const value   = f[valueKey] ?? 10;
     const checked = f[checkKey] ? "checked" : "";
     return `
       <tr class="sheet-table-data">
@@ -116,7 +131,7 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
             type="number"
             value="${value}"
             min="0"
-            max="99"
+            max="20"
           />
         </td>
         <td class="skill-name text-data">
@@ -147,21 +162,33 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
 
   if ($weaponColDiv.length) {
     $weaponColDiv.append(boxHTML);
-    console.log("DBE | Way Affinities appended to weapon column.");
   } else {
     $skillsTab.find("div.flexrow").first().append(boxHTML);
     console.warn("DBE | Fallback: appended to flexrow.");
   }
 
-  // Save numeric value
+  // Save numeric value and auto-update paired affinity
   $skillsTab.find(".dbe-affinity-value").on("change", async (event) => {
     dbeScrollTop = $skillsTab.scrollTop();
-    const key   = event.currentTarget.dataset.flag;
-    const value = parseInt(event.currentTarget.value) || 0;
-    await actor.setFlag("dragonbane-extra-fields", `custom.${key}`, value);
+
+    const key      = event.currentTarget.dataset.flag;
+    const value    = Math.max(0, Math.min(20, parseInt(event.currentTarget.value) || 0));
+    const pairKey  = AFFINITY_PAIRS[key];
+    const pairValue = 20 - value;
+
+    // Update partner input in DOM immediately for instant feedback
+    $skillsTab
+      .find(`.dbe-affinity-value[data-flag="${pairKey}"]`)
+      .val(pairValue);
+
+    // Save both in one update call — single re-render, no flicker
+    await actor.update({
+      [`flags.dragonbane-extra-fields.custom.${key}`]:     value,
+      [`flags.dragonbane-extra-fields.custom.${pairKey}`]: pairValue,
+    });
   });
 
-  // Save checkbox — no scroll jump needed since flags are separate from actor data
+  // Save checkbox
   $skillsTab.find(".dbe-affinity-check").on("change", async (event) => {
     dbeScrollTop = $skillsTab.scrollTop();
     const key   = event.currentTarget.dataset.flag;
