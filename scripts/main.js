@@ -52,10 +52,9 @@ async function initMainTab(app, $html, actor) {
           value="${ppCurrent}"
           min="0"
           max="${power}"
-          title="Type to set, left-click to spend, right-click to recover"
+          title="Current Power Points"
           style="width:2em; text-align:center;"
         />
-        / <span class="dbe-pp-max">${power}</span>
       </td>
     </tr>
   `);
@@ -73,7 +72,6 @@ async function initMainTab(app, $html, actor) {
     const newWPValue = Math.min(actor.system.willPoints.value ?? 0, newWPMax);
 
     event.currentTarget.value = newPower;
-    $mainTab.find(".dbe-pp-max").text(newPower);
     $mainTab.find(".dbe-pp-current").val(ppCur).attr("max", newPower);
 
     const existingEffect = actor.effects.find(e => e.name === DBE_POWER_EFFECT);
@@ -109,7 +107,9 @@ async function initMainTab(app, $html, actor) {
 
   // ── Save PP when typed ────────────────────────────────────────────────────
   $mainTab.find(".dbe-pp-current").on("change", async (event) => {
-    const maxPP = parseInt($mainTab.find(".dbe-pp-max").text()) || 0;
+    const maxPP = parseInt(
+      actor.getFlag("dragonbane-extra-fields", "custom")?.power ?? 0
+    );
     const newPP = Math.max(0, Math.min(maxPP, parseInt(event.currentTarget.value) || 0));
     event.currentTarget.value = newPP;
     await actor.setFlag("dragonbane-extra-fields", "custom.powerPointsCurrent", newPP);
