@@ -23,56 +23,55 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
   ];
 
   async function rollAffinity(name, value) {
-    // Boon/bane dialog matching Dragonbane's own style
-    const dialogResult = await new Promise((resolve) => {
-      new Dialog({
-        title: `${name} Way Affinity`,
-        content: `
-          <form style="padding: 8px;">
-            <div class="form-group" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-              <label style="flex:1;">Boons</label>
-              <input type="number" name="boons" value="0" min="0" max="6"
-                style="width:60px; text-align:center;"/>
-            </div>
-            <div class="form-group" style="display:flex; align-items:center; justify-content:space-between;">
-              <label style="flex:1;">Banes</label>
-              <input type="number" name="banes" value="0" min="0" max="6"
-                style="width:60px; text-align:center;"/>
-            </div>
-          </form>
-        `,
-        buttons: {
-          roll: {
-            icon: '<i class="fas fa-dice-d20"></i>',
-            label: "Roll",
-            callback: (html) => {
-              const boons = parseInt(html.find('[name="boons"]').val()) || 0;
-              const banes = parseInt(html.find('[name="banes"]').val()) || 0;
-              resolve({ boons, banes });
-            }
-          },
-          cancel: {
-            icon: '<i class="fas fa-times"></i>',
-            label: "Cancel",
-            callback: () => resolve(null)
+    // Use DialogV2 for V13 native look
+    let boons = 0;
+    let banes = 0;
+
+    const confirmed = await foundry.applications.api.DialogV2.wait({
+      window: { title: `${name} Way Affinity` },
+      content: `
+        <div style="padding:8px; display:flex; flex-direction:column; gap:8px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <label style="flex:1; font-weight:bold;">Boons</label>
+            <input id="dbe-boons" type="number" value="0" min="0" max="6"
+              style="width:60px; text-align:center;"/>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <label style="flex:1; font-weight:bold;">Banes</label>
+            <input id="dbe-banes" type="number" value="0" min="0" max="6"
+              style="width:60px; text-align:center;"/>
+          </div>
+        </div>
+      `,
+      buttons: [
+        {
+          action: "roll",
+          label: "Roll",
+          icon: "fas fa-dice-d20",
+          default: true,
+          callback: (event, button, dialog) => {
+            boons = parseInt(dialog.querySelector("#dbe-boons").value) || 0;
+            banes = parseInt(dialog.querySelector("#dbe-banes").value) || 0;
+            return true;
           }
         },
-        default: "roll",
-        close: () => resolve(null)
-      }).render(true);
+        {
+          action: "cancel",
+          label: "Cancel",
+          icon: "fas fa-times"
+        }
+      ]
     });
 
-    if (!dialogResult) return;
+    if (!confirmed || confirmed === "cancel") return;
 
-    const { boons, banes } = dialogResult;
     const net = boons - banes;
-
     let formula;
-    if (net > 0)      formula = `${net + 1}d20kl`; // boons: keep lowest
-    else if (net < 0) formula = `${Math.abs(net) + 1}d20kh`; // banes: keep highest
+    if (net > 0)      formula = `${net + 1}d20kl`;
+    else if (net < 0) formula = `${Math.abs(net) + 1}d20kh`;
     else              formula = "1d20";
 
-    const roll = await new Roll(formula).evaluate();
+    const roll   = await new Roll(formula).evaluate();
     const result = roll.total;
     const dragon  = result === 1;
     const demon   = result === 20;
@@ -85,8 +84,8 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     else              outcome = "❌ Failure";
 
     let flavorExtra = "";
-    if (net > 0)      flavorExtra = ` &mdash; ${boons} Boon${boons > 1 ? "s" : ""}`;
-    else if (net < 0) flavorExtra = ` &mdash; ${banes} Bane${banes > 1 ? "s" : ""}`;
+    if (net > 0)      flavorExtra = ` &mdash; ${boons} Boon${boons !== 1 ? "s" : ""}`;
+    else if (net < 0) flavorExtra = ` &mdash; ${banes} Bane${banes !== 1 ? "s" : ""}`;
 
     await roll.toMessage({
       speaker: ChatMessage.getSpeaker({ actor }),
@@ -94,34 +93,29 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     });
   }
 
-  // Sniff the weapon skills table so we can copy its appearance exactly
+  // Find the weapon skills table
   const weaponTable = $skillsTab.find("th.text-header").filter(function() {
     return $(this).text().toLowerCase().includes("weapon");
   }).closest("table").first();
 
-  // Copy background styles from the weapon table and its parent div
-  const wrapperDiv    = weaponTable.parent();
-  const wrapperBg     = wrapperDiv.css("background-image") || "none";
-  const wrapperBgCol  = wrapperDiv.css("background-color") || "transparent";
-  const tableBg       = weaponTable.css("background-image") || "none";
-  const tableBgCol    = weaponTable.css("background-color") || "transparent";
-  const tableBorder   = weaponTable.css("border") || "none";
-  const tableClass    = weaponTable.attr("class") || "";
+  // Copy classes from the weapon column wrapper div so we get the same parchment style
+  const weaponColDiv   = weaponTable.parent();
+  const weaponColClass = weaponColDiv.attr("class") || "";
 
-  // Sniff header row styles
-  const existingHeader  = $skillsTab.find("tr.sheet-table-header").first();
-  const headerColor     = existingHeader.css("color") || "#f0e6d3";
-  const headerBg        = existingHeader.css("background-color") || "#5a3e2b";
-  const headerBgImg     = existingHeader.css("background-image") || "none";
+  // The flex row contains both Core Skills and Weapon Skills columns
+  // Going up one more level gets us outside it so we insert below both columns
+  const flexRow = weaponColDiv.parent();
 
-  // Sniff a regular skill row for text colour
-  const existingRow  = $skillsTab.find("tbody tr").not(".sheet-table-header").first();
-  const rowColor     = existingRow.css("color") || "#2a1a0a";
+  // Sniff text colours from existing rows
+  const existingHeader = $skillsTab.find("tr.sheet-table-header").first();
+  const headerColor    = existingHeader.css("color") || "#f0e6d3";
+  const existingRow    = $skillsTab.find("tbody tr").not(".sheet-table-header").first();
+  const rowColor       = existingRow.css("color") || "#2a1a0a";
 
   const rowsHTML = affinities.map((name, i) => {
     const key   = `affinity_${name.toLowerCase()}`;
     const value = f[key] ?? 0;
-    const bg    = i % 2 === 0 ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.06)";
+    const bg    = i % 2 === 0 ? "rgba(0,0,0,0.03)" : "rgba(0,0,0,0.07)";
     return `
       <tr class="dbe-affinity-row" style="background:${bg};">
         <td style="padding:3px 6px; width:100%;">
@@ -141,13 +135,13 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
             min="0"
             max="99"
             style="
-              width: 44px;
-              text-align: center;
-              color: ${rowColor};
-              background: rgba(255,255,255,0.15);
-              border: 1px solid rgba(0,0,0,0.2);
-              border-radius: 3px;
-              padding: 1px 2px;
+              width:44px;
+              text-align:center;
+              color:${rowColor};
+              background:rgba(0,0,0,0.08);
+              border:1px solid rgba(0,0,0,0.2);
+              border-radius:3px;
+              padding:1px 2px;
             "
           />
         </td>
@@ -155,33 +149,15 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     `;
   }).join("");
 
-  // Wrap in same div structure as weapon table, copying its background
+  // Wrap in a div with the same class as the weapon column so we get the parchment scroll
   const boxHTML = `
-    <div class="dbe-way-affinities-wrapper" style="
-      background-image: ${wrapperBg};
-      background-color: ${wrapperBgCol};
-      background-size: cover;
-      margin-top: 8px;
-    ">
-      <table class="${tableClass} dbe-way-affinities" style="
-        width: 100%;
-        border-collapse: collapse;
-        background-image: ${tableBg};
-        background-color: ${tableBgCol};
-        background-size: cover;
-        border: ${tableBorder};
-      ">
+    <div class="dbe-way-affinities ${weaponColClass}" style="margin-top:8px; width:100%;">
+      <table style="width:100%; border-collapse:collapse;">
         <tbody>
-          <tr class="sheet-table-header" style="
-            background-image: ${headerBgImg};
-            background-color: ${headerBg};
-            color: ${headerColor};
-          ">
-            <th class="text-header" colspan="2" style="
-              color: ${headerColor};
-              padding: 4px 6px;
-              text-align: left;
-            ">Way Affinities</th>
+          <tr class="sheet-table-header">
+            <th class="text-header" colspan="2" style="color:${headerColor}; padding:4px 6px; text-align:left;">
+              Way Affinities
+            </th>
           </tr>
           ${rowsHTML}
         </tbody>
@@ -189,9 +165,12 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     </div>
   `;
 
-  if (weaponTable.length) {
+  if (flexRow.length) {
+    flexRow.after(boxHTML);
+    console.log("DBE | Way Affinities inserted below flex row.");
+  } else if (weaponTable.length) {
     weaponTable.parent().after(boxHTML);
-    console.log("DBE | Way Affinities inserted.");
+    console.warn("DBE | Flex row not found, inserted after weapon column div.");
   } else {
     $skillsTab.append(boxHTML);
     console.warn("DBE | Fallback used.");
