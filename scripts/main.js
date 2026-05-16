@@ -92,7 +92,7 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     });
   }
 
-  // Build rows using the exact same classes as the system's skill rows
+  // Use the exact same classes as the system skill rows
   const rowsHTML = affinities.map(name => {
     const key   = `affinity_${name.toLowerCase()}`;
     const value = f[key] ?? 0;
@@ -100,7 +100,7 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
       <tr class="sheet-table-data">
         <td class="checkbox-data icon-data"></td>
         <td class="number-data narrow">
-          <input class="dbe-affinity-value inline-edit"
+          <input class="dbe-affinity-value"
             data-flag="${key}"
             type="number"
             value="${value}"
@@ -119,9 +119,9 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     `;
   }).join("");
 
-  // Use the exact same table classes as the system — this is what gives the parchment scroll
+  // Exact same classes as core-skills and weapon-skills tables
   const boxHTML = `
-    <table class="sheet-table dbe-way-affinities item-list" style="margin-top:8px;">
+    <table class="sheet-table dbe-way-affinities item-list" style="margin-top: 8px;">
       <tr class="sheet-table-header">
         <th></th>
         <th class="number-header"></th>
@@ -132,20 +132,20 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     </table>
   `;
 
-  // Find the second column div (the one containing weapon-skills)
-  // and append directly to it — matching where secondary skills would go
-  const $weaponTable  = $skillsTab.find("table.weapon-skills");
-  const $weaponColDiv = $weaponTable.parent();
+  // Append inside the weapon skills column div — matching where secondary skills go
+  const $weaponColDiv = $skillsTab.find("table.weapon-skills").parent();
+
+  console.log("DBE | Weapon column div found:", $weaponColDiv.length > 0);
 
   if ($weaponColDiv.length) {
     $weaponColDiv.append(boxHTML);
-    console.log("DBE | Way Affinities appended to weapon skills column.");
+    console.log("DBE | Way Affinities appended to weapon column.");
   } else {
-    $skillsTab.find("div.flexrow").append(boxHTML);
+    $skillsTab.find("div.flexrow").first().append(boxHTML);
     console.warn("DBE | Fallback: appended to flexrow.");
   }
 
-  // Save value on change
+  // Save value — store scroll position first to survive re-render
   $skillsTab.find(".dbe-affinity-value").on("change", async (event) => {
     dbeScrollTop = $skillsTab.scrollTop();
     const key   = event.currentTarget.dataset.flag;
