@@ -15,7 +15,61 @@ const AFFINITY_PAIRS = {
   "affinity_order":    "affinity_chaos",
 };
 
+const AFFINITY_NAMES = new Set([
+  "blood", "wood", "bone", "iron", "fire",
+  "stone", "darkness", "light", "chaos", "order"
+]);
+
 const DBE_POWER_EFFECT = "DBE: Power (WP Reduction)";
+
+// ─── SHARED: Affinity roll dialog & roll ─────────────────────────────────────
+
+async function rollVsAffinity(actor, title, affinityKey) {
+  const f            = actor.getFlag("dragonbane-extra-fields", "custom") || {};
+  const affinityVal  = f[`affinity_${affinityKey}`] ?? 10;
+  const dialogData   = { banes: [], boons: [], fillerBanes: 0, fillerBoons: 0 };
+  const label        = game.i18n.localize("DoD.ui.dialog.skillRollLabel");
+
+  const content = await renderTemplate(
+    "systems/dragonbane/templates/partials/roll-dialog.hbs",
+    dialogData
+  );
+
+  const values = await foundry.applications.api.DialogV2.input({
+    window: { title },
+    content,
+    ok: { label }
+  });
+
+  if (values === null) return;
+
+  const expanded   = foundry.utils.expandObject(values);
+  const boons      = Object.entries(expanded.boons  ?? {}).filter(([,v]) => v).map(([k]) => k);
+  const banes      = Object.entries(expanded.banes  ?? {}).filter(([,v]) => v).map(([k]) => k);
+  const extraBoons = Number(expanded.extraBoons ?? 0);
+  const extraBanes = Number(expanded.extraBanes ?? 0);
+  const totalBoons = boons.length + extraBoons;
+  const totalBanes = banes.length + extraBanes;
+
+  let formula;
+  if (totalBanes > totalBoons)      formula = `${1 + totalBanes - totalBoons}d20kh`;
+  else if (totalBoons > totalBanes) formula = `${1 + totalBoons - totalBanes}d20kl`;
+  else                              formula = "d20";
+
+  const roll    = await new Roll(formula).evaluate();
+  const result  = roll.total;
+  const dragon  = result === 1;
+  const demon   = result === 20;
+  const success = result <= affinityVal && !demon;
+
+  let outcome;
+  if (dragon)       outcome = game.i18n.localize("DoD.roll.dragon");
+  else if (demon)   outcome = game.i18n.localize("DoD.roll.demon");
+  else if (success) outcome = game.i18n.localize("DoD.roll.success");
+  else              outcome = game.i18n.localize("DoD.roll.failure");
+
+  return { roll, outcome, affinityVal };
+}
 
 // ─── MAIN TAB: Power & Power Points ──────────────────────────────────────────
 
@@ -59,7 +113,6 @@ async function initMainTab(app, $html, actor) {
     </tr>
   `);
 
-  // ── Save Power when changed ───────────────────────────────────────────────
   $mainTab.find(".dbe-power-input").on("change", async (event) => {
     const wil      = actor.system.attributes.wil.value ?? 0;
     const newPower = Math.max(0, Math.min(wil, parseInt(event.currentTarget.value) || 0));
@@ -105,14 +158,62 @@ async function initMainTab(app, $html, actor) {
     });
   });
 
-  // ── Save PP when typed ────────────────────────────────────────────────────
   $mainTab.find(".dbe-pp-current").on("change", async (event) => {
-    const maxPP = parseInt(
-      actor.getFlag("dragonbane-extra-fields", "custom")?.power ?? 0
-    );
+    const maxPP = actor.getFlag("dragonbane-extra-fields", "custom")?.power ?? 0;
     const newPP = Math.max(0, Math.min(maxPP, parseInt(event.currentTarget.value) || 0));
     event.currentTarget.value = newPP;
     await actor.setFlag("dragonbane-extra-fields", "custom.powerPointsCurrent", newPP);
+  });
+}
+
+// ─── SPELL INTERCEPTION: roll vs Way Affinity ─────────────────────────────────
+
+function initSpellInterception($html, actor) {
+  // Find every element with a data-item-id and check if it's an affinity-linked spell
+  $html.find("[data-item-id]").each(function() {
+    const itemId = this.dataset.itemId;
+    const item   = actor.items.get(itemId);
+    if (!item || item.type !== "spell") return;
+
+    const school = item.system.school?.toLowerCase().trim();
+    if (!school || !AFFINITY_NAMES.has(school)) return;
+
+    const affinityKey  = school;
+    const affinityName = school.charAt(0).toUpperCase() + school.slice(1);
+
+    // Helper to replace handlers on a specific element
+    function interceptElement($el) {
+      if (!$el.length) return;
+      // Remove system's combined click+contextmenu handler, restore contextmenu ourselves
+      $el.off("click contextmenu")
+        .on("click", async (ev) => {
+          ev.preventDefault();
+          const result = await rollVsAffinity(
+            actor,
+            `${item.name} — ${affinityName} Way`,
+            affinityKey
+          );
+          if (!result) return;
+          await result.roll.toMessage({
+            speaker: ChatMessage.getSpeaker({ actor }),
+            flavor:  `<strong>${item.name}</strong> — ${affinityName} Way (${result.affinityVal})<br>${result.outcome}`
+          });
+        })
+        .on("contextmenu", (ev) => {
+          ev.preventDefault();
+          item.sheet.render(true);
+        });
+    }
+
+    const $el = $(this);
+
+    // Case 1: the element itself is the rollable link (main tab memorized spells)
+    if ($el.hasClass("rollable-skill")) {
+      interceptElement($el);
+    }
+
+    // Case 2: the element is a row containing rollable links (abilities tab)
+    interceptElement($el.find(".rollable-skill"));
   });
 }
 
@@ -133,54 +234,6 @@ function initSkillsTab(app, $html, actor) {
     "Blood", "Wood", "Bone", "Iron", "Fire",
     "Stone", "Darkness", "Light", "Chaos", "Order"
   ];
-
-  async function rollAffinity(name, value) {
-    const dialogData = { banes: [], boons: [], fillerBanes: 0, fillerBoons: 0 };
-    const title   = `${name} Way Affinity`;
-    const label   = game.i18n.localize("DoD.ui.dialog.skillRollLabel");
-    const content = await renderTemplate(
-      "systems/dragonbane/templates/partials/roll-dialog.hbs",
-      dialogData
-    );
-
-    const values = await foundry.applications.api.DialogV2.input({
-      window: { title },
-      content,
-      ok: { label }
-    });
-
-    if (values === null) return;
-
-    const expanded   = foundry.utils.expandObject(values);
-    const boons      = Object.entries(expanded.boons ?? {}).filter(([,v]) => v).map(([k]) => k);
-    const banes      = Object.entries(expanded.banes ?? {}).filter(([,v]) => v).map(([k]) => k);
-    const extraBoons = Number(expanded.extraBoons ?? 0);
-    const extraBanes = Number(expanded.extraBanes ?? 0);
-    const totalBoons = boons.length + extraBoons;
-    const totalBanes = banes.length + extraBanes;
-
-    let formula;
-    if (totalBanes > totalBoons)      formula = `${1 + totalBanes - totalBoons}d20kh`;
-    else if (totalBoons > totalBanes) formula = `${1 + totalBoons - totalBanes}d20kl`;
-    else                              formula = "d20";
-
-    const roll    = await new Roll(formula).evaluate();
-    const result  = roll.total;
-    const dragon  = result === 1;
-    const demon   = result === 20;
-    const success = result <= value && !demon;
-
-    let outcome;
-    if (dragon)       outcome = game.i18n.localize("DoD.roll.dragon");
-    else if (demon)   outcome = game.i18n.localize("DoD.roll.demon");
-    else if (success) outcome = game.i18n.localize("DoD.roll.success");
-    else              outcome = game.i18n.localize("DoD.roll.failure");
-
-    await roll.toMessage({
-      speaker: ChatMessage.getSpeaker({ actor }),
-      flavor: `<strong>${name} Way Affinity</strong> (${value})<br>${outcome}`
-    });
-  }
 
   const rowsHTML = affinities.map(name => {
     const valueKey = `affinity_${name.toLowerCase()}`;
@@ -250,7 +303,15 @@ function initSkillsTab(app, $html, actor) {
     const key   = event.currentTarget.dataset.flag;
     const name  = event.currentTarget.dataset.name;
     const value = parseInt($skillsTab.find(`.dbe-affinity-value[data-flag="${key}"]`).val()) || 0;
-    await rollAffinity(name, value);
+
+    const affinityKey = key.replace("affinity_", "");
+    const result = await rollVsAffinity(actor, `${name} Way Affinity`, affinityKey);
+    if (!result) return;
+
+    await result.roll.toMessage({
+      speaker: ChatMessage.getSpeaker({ actor }),
+      flavor:  `<strong>${name} Way Affinity</strong> (${result.affinityVal})<br>${result.outcome}`
+    });
   });
 }
 
@@ -262,5 +323,6 @@ Hooks.on("renderDoDCharacterSheet", async (app, html, data) => {
   const $html = html instanceof jQuery ? html : $(html);
 
   await initMainTab(app, $html, actor);
+  initSpellInterception($html, actor);
   initSkillsTab(app, $html, actor);
 });
