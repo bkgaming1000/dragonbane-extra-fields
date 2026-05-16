@@ -1,0 +1,13 @@
+{
+  "id": "dragonbane-extra-fields",
+  "title": "Dragonbane Extra Fields",
+  "description": "Adds custom stats and checkboxes to Dragonbane character sheets.",
+  "version": "1.0.0",
+  "compatibility": {
+    "minimum": "11",
+    "verified": "12"
+  },
+  "scripts": ["scripts/main.js"],
+  "manifest": "https://raw.githubusercontent.com/bkgaming1000/dragonbane-extra-fields/main/module.json",
+  "download": "https://github.com/bkgaming1000/dragonbane-extra-fields/archive/refs/heads/main.zip"
+}
