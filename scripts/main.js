@@ -15,21 +15,19 @@ const AFFINITY_PAIRS = {
   "affinity_order":    "affinity_chaos",
 };
 
+const DBE_POWER_EFFECT = "DBE: Power (WP Reduction)";
+
 // ─── MAIN TAB: Power & Power Points ──────────────────────────────────────────
 
 async function initMainTab(app, $html, actor) {
   const f = actor.getFlag("dragonbane-extra-fields", "custom") || {};
   const $mainTab = $html.find('section.tab[data-tab="main"]').first();
   if (!$mainTab.length) return;
-
-  // Avoid double-injection
   if ($mainTab.find(".dbe-power-row").length) return;
 
-  const power      = f.power ?? 0;
-  const ppCurrent  = f.powerPointsCurrent ?? 0;
+  const power     = f.power ?? 0;
+  const ppCurrent = f.powerPointsCurrent ?? 0;
 
-  // Append Power and Power Points rows to the derived-stat table
-  // (the third one — damage bonuses & movement)
   const $statsTable = $mainTab.find("table.derived-stat").last();
 
   $statsTable.append(`
@@ -48,58 +46,77 @@ async function initMainTab(app, $html, actor) {
     <tr class="dbe-pp-row">
       <th>Power Points</th>
       <td>
-        <a class="dbe-pp-current" style="cursor:pointer;" title="Left-click to spend, right-click to recover">${ppCurrent}</a>
-        <span class="dbe-pp-separator"> / </span>
-        <span class="dbe-pp-max">${power}</span>
+        <a class="dbe-pp-current"
+           style="cursor:pointer;"
+           title="Left-click to spend, right-click to recover">${ppCurrent}</a>
+        / <span class="dbe-pp-max">${power}</span>
       </td>
     </tr>
   `);
 
-  // ── Save Power when changed ───────────────────────────────────────────────
   $mainTab.find(".dbe-power-input").on("change", async (event) => {
-    const wil         = actor.system.attributes.wil.value ?? 0;
-    const newPower    = Math.max(0, Math.min(wil, parseInt(event.currentTarget.value) || 0));
-    const oldPower    = f.power ?? 0;
+    const wil      = actor.system.attributes.wil.value ?? 0;
+    const newPower = Math.max(0, Math.min(wil, parseInt(event.currentTarget.value) || 0));
+    const ppCur    = Math.min(f.powerPointsCurrent ?? 0, newPower);
 
-    // Clamp PP current to new power max
-    const ppCur       = Math.min(f.powerPointsCurrent ?? 0, newPower);
+    // Clamp current WP to the new max (WIL - Power)
+    const newWPMax   = Math.max(0, wil - newPower);
+    const newWPValue = Math.min(actor.system.willPoints.value ?? 0, newWPMax);
 
-    // WP: maintain current "damage" (gap between max and current)
-    const oldWPBase   = actor.system.willPoints.base ?? actor.system.willPoints.max ?? wil;
-    const oldWPValue  = actor.system.willPoints.value ?? oldWPBase;
-    const wpDamage    = Math.max(0, oldWPBase - oldWPValue);
-    const newWPBase   = Math.max(0, wil - newPower);
-    const newWPValue  = Math.max(0, newWPBase - wpDamage);
-
-    // Update DOM immediately for instant feedback
+    // Update DOM immediately
     event.currentTarget.value = newPower;
     $mainTab.find(".dbe-pp-max").text(newPower);
     $mainTab.find(".dbe-pp-current").text(ppCur);
 
-    // Save flags and WP in one batch
-    await Promise.all([
-      actor.update({
-        "flags.dragonbane-extra-fields.custom.power":              newPower,
-        "flags.dragonbane-extra-fields.custom.powerPointsCurrent": ppCur,
-        "system.willPoints.base":  newWPBase,
-        "system.willPoints.value": newWPValue,
-      })
-    ]);
+    // Apply an Active Effect to reduce willPoints.max — this is the correct
+    // Foundry way to modify a derived stat without fighting prepareDerivedData
+    const existingEffect = actor.effects.find(e => e.name === DBE_POWER_EFFECT);
+
+    if (newPower > 0) {
+      const changes = [{
+        key:      "system.willPoints.max",
+        mode:     CONST.ACTIVE_EFFECT_MODES.ADD,
+        value:    String(-newPower),
+        priority: 20
+      }];
+
+      if (existingEffect) {
+        await existingEffect.update({ changes });
+      } else {
+        await actor.createEmbeddedDocuments("ActiveEffect", [{
+          name:     DBE_POWER_EFFECT,
+          icon:     "icons/svg/downgrade.svg",
+          origin:   actor.uuid,
+          disabled: false,
+          changes
+        }]);
+      }
+    } else {
+      // Power reduced to 0 — remove the effect entirely
+      if (existingEffect) await existingEffect.delete();
+    }
+
+    // Save flags and clamp WP value in one update
+    await actor.update({
+      "flags.dragonbane-extra-fields.custom.power":              newPower,
+      "flags.dragonbane-extra-fields.custom.powerPointsCurrent": ppCur,
+      "system.willPoints.value":                                 newWPValue,
+    });
   });
 
-  // ── Left-click: spend a Power Point ──────────────────────────────────────
-  // ── Right-click: recover a Power Point ───────────────────────────────────
+  // Left-click: spend a Power Point; right-click: recover one
   $mainTab.find(".dbe-pp-current").on("click contextmenu", async (event) => {
     event.preventDefault();
-    const currentPower = parseInt($mainTab.find(".dbe-power-input").val()) || 0;
-    const curPP = f.powerPointsCurrent ?? (actor.getFlag("dragonbane-extra-fields", "custom") || {}).powerPointsCurrent ?? 0;
+    const f2       = actor.getFlag("dragonbane-extra-fields", "custom") || {};
+    const maxPP    = f2.power ?? 0;
+    const curPP    = f2.powerPointsCurrent ?? 0;
 
     let newPP;
-    if (event.type === "click") {         // left click — spend
+    if (event.type === "click") {
       if (curPP <= 0) return;
       newPP = curPP - 1;
-    } else {                              // right click — recover
-      if (curPP >= currentPower) return;
+    } else {
+      if (curPP >= maxPP) return;
       newPP = curPP + 1;
     }
 
@@ -128,8 +145,8 @@ function initSkillsTab(app, $html, actor) {
 
   async function rollAffinity(name, value) {
     const dialogData = { banes: [], boons: [], fillerBanes: 0, fillerBoons: 0 };
-    const title  = `${name} Way Affinity`;
-    const label  = game.i18n.localize("DoD.ui.dialog.skillRollLabel");
+    const title   = `${name} Way Affinity`;
+    const label   = game.i18n.localize("DoD.ui.dialog.skillRollLabel");
     const content = await renderTemplate(
       "systems/dragonbane/templates/partials/roll-dialog.hbs",
       dialogData
@@ -148,7 +165,6 @@ function initSkillsTab(app, $html, actor) {
     const banes      = Object.entries(expanded.banes ?? {}).filter(([,v]) => v).map(([k]) => k);
     const extraBoons = Number(expanded.extraBoons ?? 0);
     const extraBanes = Number(expanded.extraBanes ?? 0);
-
     const totalBoons = boons.length + extraBoons;
     const totalBanes = banes.length + extraBanes;
 
@@ -231,7 +247,11 @@ function initSkillsTab(app, $html, actor) {
 
   $skillsTab.find(".dbe-affinity-check").on("change", async (event) => {
     dbeScrollTop = $skillsTab.scrollTop();
-    await actor.setFlag("dragonbane-extra-fields", `custom.${event.currentTarget.dataset.flag}`, event.currentTarget.checked);
+    await actor.setFlag(
+      "dragonbane-extra-fields",
+      `custom.${event.currentTarget.dataset.flag}`,
+      event.currentTarget.checked
+    );
   });
 
   $skillsTab.find(".dbe-roll-affinity").on("click", async (event) => {
