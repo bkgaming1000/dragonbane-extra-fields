@@ -23,24 +23,27 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
   ];
 
   async function rollAffinity(name, value) {
+    // Dropdowns matching Dragonbane's own boon/bane style
+    const selectOpts = [0,1,2,3,4,5,6]
+      .map(n => `<option value="${n}">${n}</option>`)
+      .join("");
+
     let boons = 0;
     let banes = 0;
 
     const confirmed = await foundry.applications.api.DialogV2.wait({
       window: { title: `${name} Way Affinity` },
       content: `
-        <div style="padding:8px; display:flex; flex-direction:column; gap:8px;">
-          <div style="display:flex; align-items:center; gap:8px;">
-            <label style="flex:1; font-weight:bold;">Boons</label>
-            <input id="dbe-boons" type="number" value="0" min="0" max="6"
-              style="width:60px; text-align:center;"/>
+        <form class="standard-form">
+          <div class="form-group">
+            <label>Boons</label>
+            <select id="dbe-boons">${selectOpts}</select>
           </div>
-          <div style="display:flex; align-items:center; gap:8px;">
-            <label style="flex:1; font-weight:bold;">Banes</label>
-            <input id="dbe-banes" type="number" value="0" min="0" max="6"
-              style="width:60px; text-align:center;"/>
+          <div class="form-group">
+            <label>Banes</label>
+            <select id="dbe-banes">${selectOpts}</select>
           </div>
-        </div>
+        </form>
       `,
       buttons: [
         {
@@ -92,7 +95,7 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     });
   }
 
-  // Use the exact same classes as the system skill rows
+  // Rows using exact same classes as the system — no inline styles, let CSS handle everything
   const rowsHTML = affinities.map(name => {
     const key   = `affinity_${name.toLowerCase()}`;
     const value = f[key] ?? 0;
@@ -100,11 +103,13 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
       <tr class="sheet-table-data">
         <td class="checkbox-data icon-data"></td>
         <td class="number-data narrow">
-          <input class="dbe-affinity-value"
+          <input
+            class="dbe-affinity-value"
             data-flag="${key}"
             type="number"
             value="${value}"
-            min="0" max="99"
+            min="0"
+            max="99"
           />
         </td>
         <td class="skill-name text-data">
@@ -119,7 +124,7 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     `;
   }).join("");
 
-  // Exact same classes as core-skills and weapon-skills tables
+  // Exact same class as the system's skill tables — CSS handles parchment, colors, header banner
   const boxHTML = `
     <table class="sheet-table dbe-way-affinities item-list" style="margin-top: 8px;">
       <tr class="sheet-table-header">
@@ -132,10 +137,8 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     </table>
   `;
 
-  // Append inside the weapon skills column div — matching where secondary skills go
+  // Append inside the weapon skills column div — same place secondary skills would go
   const $weaponColDiv = $skillsTab.find("table.weapon-skills").parent();
-
-  console.log("DBE | Weapon column div found:", $weaponColDiv.length > 0);
 
   if ($weaponColDiv.length) {
     $weaponColDiv.append(boxHTML);
@@ -145,7 +148,7 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     console.warn("DBE | Fallback: appended to flexrow.");
   }
 
-  // Save value — store scroll position first to survive re-render
+  // Save on change — preserve scroll position across re-render
   $skillsTab.find(".dbe-affinity-value").on("change", async (event) => {
     dbeScrollTop = $skillsTab.scrollTop();
     const key   = event.currentTarget.dataset.flag;
@@ -153,7 +156,7 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     await actor.setFlag("dragonbane-extra-fields", `custom.${key}`, value);
   });
 
-  // Roll on click
+  // Roll on name click
   $skillsTab.find(".dbe-roll-affinity").on("click", async (event) => {
     event.preventDefault();
     const key   = event.currentTarget.dataset.flag;
