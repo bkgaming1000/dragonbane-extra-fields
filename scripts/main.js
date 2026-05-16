@@ -1,7 +1,7 @@
 console.log("DBE | Script file loaded!");
 
 Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
-  console.log("DBE | Hook fired. Actor type:", app.actor?.type, "| html type:", html?.constructor?.name);
+  console.log("DBE | Hook fired.");
 
   if (app.actor?.type !== "character") return;
 
@@ -19,61 +19,51 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     const key = `affinity_${name.toLowerCase()}`;
     const checked = f[key] ? "checked" : "";
     return `
-      <li class="dbe-affinity-row" style="
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 2px 4px;
-        list-style: none;
-      ">
-        <input
-          type="checkbox"
-          data-flag="${key}"
-          ${checked}
-          style="width:14px; height:14px; cursor:pointer; flex-shrink:0;"
-        />
-        <span style="font-size: 0.9em;">${name}</span>
-      </li>
+      <tr class="dbe-affinity-row">
+        <td style="padding: 2px 4px;">
+          <input
+            type="checkbox"
+            data-flag="${key}"
+            ${checked}
+            style="width:14px; height:14px; cursor:pointer;"
+          />
+        </td>
+        <td style="padding: 2px 4px;">${name}</td>
+      </tr>
     `;
   }).join("");
 
   const boxHTML = `
-    <fieldset class="dbe-way-affinities">
-      <legend>Way Affinities</legend>
-      <ul style="margin:0; padding:0;">
-        ${rowsHTML}
-      </ul>
-    </fieldset>
+    <div class="dbe-way-affinities" style="margin-top: 8px;">
+      <table style="width:100%;">
+        <tbody>
+          <tr class="sheet-table-header">
+            <th class="text-header" colspan="2">Way Affinities</th>
+          </tr>
+          ${rowsHTML}
+        </tbody>
+      </table>
+    </div>
   `;
 
-  const allFieldsets = $html.find("fieldset");
-  console.log("DBE | Fieldsets found:", allFieldsets.length);
-  allFieldsets.each(function() {
-    console.log("DBE |  -", $(this).find("legend").text().trim());
+  // Find the Weapon Skills header and walk up to its wrapping div
+  const weaponHeader = $html.find("th.text-header").filter(function() {
+    return $(this).text().toLowerCase().includes("weapon");
   });
 
-  const allTabs = $html.find("[data-tab]");
-  console.log("DBE | Tabs found:", allTabs.length);
-  allTabs.each(function() {
-    console.log("DBE |  - tab:", $(this).attr("data-tab"));
-  });
+  console.log("DBE | Weapon header found:", weaponHeader.length > 0, "| text:", weaponHeader.text().trim());
 
-  const skillsTab = $html.find('[data-tab="skills"]');
-  console.log("DBE | Skills tab found:", skillsTab.length > 0);
-
-  const weaponSkillsBox = (skillsTab.length ? skillsTab : $html).find("fieldset").filter(function () {
-    return $(this).find("legend").text().toLowerCase().includes("weapon");
-  }).last();
-
-  console.log("DBE | Weapon Skills box found:", weaponSkillsBox.length > 0);
+  const weaponSkillsBox = weaponHeader.closest("table").parent("div");
+  console.log("DBE | Weapon Skills wrapper div found:", weaponSkillsBox.length > 0);
 
   if (weaponSkillsBox.length) {
     weaponSkillsBox.after(boxHTML);
-    console.log("DBE | Way Affinities box inserted after Weapon Skills.");
+    console.log("DBE | Way Affinities inserted after Weapon Skills.");
   } else {
-    const target = skillsTab.length ? skillsTab : $html.find(".sheet-body");
-    target.append(boxHTML);
-    console.warn("DBE | Could not find Weapon Skills box — appended to fallback target.");
+    // Fallback: append to skills tab
+    const skillsTab = $html.find('[data-tab="skills"]').first();
+    skillsTab.append(boxHTML);
+    console.warn("DBE | Fallback used — appended to skills tab.");
   }
 
   $html.find(".dbe-way-affinities input[type='checkbox']").on("change", async (event) => {
