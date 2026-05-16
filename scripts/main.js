@@ -1,3 +1,4 @@
+console.log("DBE | Script file loaded!");
 Hooks.on("renderActorSheet", (app, html, data) => {
   console.log("DBE | Hook fired. Actor type:", app.actor?.type, "| html type:", html?.constructor?.name);
 
