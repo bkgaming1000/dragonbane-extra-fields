@@ -1,4 +1,17 @@
 console.log("DBE | Script file loaded!");
+
+// Temporary: intercept all hooks to find the right render hook name
+const _callAll = Hooks.callAll.bind(Hooks);
+Hooks.callAll = function(hook, ...args) {
+  if (typeof hook === "string" && hook.toLowerCase().includes("render")) {
+    console.log("DBE | Hook fired:", hook);
+  }
+  return _callAll(hook, ...args);
+};
+
+Hooks.on("renderActorSheet", (app, html, data) => {
+// ... rest of the code unchanged
+
 Hooks.on("renderActorSheet", (app, html, data) => {
   console.log("DBE | Hook fired. Actor type:", app.actor?.type, "| html type:", html?.constructor?.name);
 
