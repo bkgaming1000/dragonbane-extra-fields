@@ -23,7 +23,6 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
   ];
 
   async function rollAffinity(name, value) {
-    // Use DialogV2 for V13 native look
     let boons = 0;
     let banes = 0;
 
@@ -71,8 +70,8 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     else if (net < 0) formula = `${Math.abs(net) + 1}d20kh`;
     else              formula = "1d20";
 
-    const roll   = await new Roll(formula).evaluate();
-    const result = roll.total;
+    const roll    = await new Roll(formula).evaluate();
+    const result  = roll.total;
     const dragon  = result === 1;
     const demon   = result === 20;
     const success = result <= value && !demon;
@@ -93,89 +92,60 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     });
   }
 
-  // Find the weapon skills table
-  const weaponTable = $skillsTab.find("th.text-header").filter(function() {
-    return $(this).text().toLowerCase().includes("weapon");
-  }).closest("table").first();
-
-  // Copy classes from the weapon column wrapper div so we get the same parchment style
-  const weaponColDiv   = weaponTable.parent();
-  const weaponColClass = weaponColDiv.attr("class") || "";
-
-  // The flex row contains both Core Skills and Weapon Skills columns
-  // Going up one more level gets us outside it so we insert below both columns
-  const flexRow = weaponColDiv.parent();
-
-  // Sniff text colours from existing rows
-  const existingHeader = $skillsTab.find("tr.sheet-table-header").first();
-  const headerColor    = existingHeader.css("color") || "#f0e6d3";
-  const existingRow    = $skillsTab.find("tbody tr").not(".sheet-table-header").first();
-  const rowColor       = existingRow.css("color") || "#2a1a0a";
-
-  const rowsHTML = affinities.map((name, i) => {
+  // Build rows using the exact same classes as the system's skill rows
+  const rowsHTML = affinities.map(name => {
     const key   = `affinity_${name.toLowerCase()}`;
     const value = f[key] ?? 0;
-    const bg    = i % 2 === 0 ? "rgba(0,0,0,0.03)" : "rgba(0,0,0,0.07)";
     return `
-      <tr class="dbe-affinity-row" style="background:${bg};">
-        <td style="padding:3px 6px; width:100%;">
-          <a class="dbe-roll-affinity rollable"
+      <tr class="sheet-table-data">
+        <td class="checkbox-data icon-data"></td>
+        <td class="number-data narrow">
+          <input class="dbe-affinity-value inline-edit"
+            data-flag="${key}"
+            type="number"
+            value="${value}"
+            min="0" max="99"
+          />
+        </td>
+        <td class="skill-name text-data">
+          <a class="dbe-roll-affinity rollable-skill"
              data-flag="${key}"
-             data-name="${name}"
-             style="cursor:pointer; color:${rowColor}; text-decoration:none;">
+             data-name="${name}">
             ${name}
           </a>
         </td>
-        <td style="padding:3px 6px; text-align:right; white-space:nowrap;">
-          <input
-            type="number"
-            class="dbe-affinity-value"
-            data-flag="${key}"
-            value="${value}"
-            min="0"
-            max="99"
-            style="
-              width:44px;
-              text-align:center;
-              color:${rowColor};
-              background:rgba(0,0,0,0.08);
-              border:1px solid rgba(0,0,0,0.2);
-              border-radius:3px;
-              padding:1px 2px;
-            "
-          />
-        </td>
+        <td></td>
       </tr>
     `;
   }).join("");
 
-  // Wrap in a div with the same class as the weapon column so we get the parchment scroll
+  // Use the exact same table classes as the system — this is what gives the parchment scroll
   const boxHTML = `
-    <div class="dbe-way-affinities ${weaponColClass}" style="margin-top:8px; width:100%;">
-      <table style="width:100%; border-collapse:collapse;">
-        <tbody>
-          <tr class="sheet-table-header">
-            <th class="text-header" colspan="2" style="color:${headerColor}; padding:4px 6px; text-align:left;">
-              Way Affinities
-            </th>
-          </tr>
-          ${rowsHTML}
-        </tbody>
-      </table>
-    </div>
+    <table class="sheet-table dbe-way-affinities item-list" style="margin-top:8px;">
+      <tr class="sheet-table-header">
+        <th></th>
+        <th class="number-header"></th>
+        <th class="text-header">Way Affinities</th>
+        <th></th>
+      </tr>
+      ${rowsHTML}
+    </table>
   `;
 
-  if (flexRow.length) {
-    flexRow.after(boxHTML);
-    console.log("DBE | Way Affinities inserted below flex row.");
-  } else if (weaponTable.length) {
-    weaponTable.parent().after(boxHTML);
-    console.warn("DBE | Flex row not found, inserted after weapon column div.");
+  // Find the second column div (the one containing weapon-skills)
+  // and append directly to it — matching where secondary skills would go
+  const $weaponTable  = $skillsTab.find("table.weapon-skills");
+  const $weaponColDiv = $weaponTable.parent();
+
+  if ($weaponColDiv.length) {
+    $weaponColDiv.append(boxHTML);
+    console.log("DBE | Way Affinities appended to weapon skills column.");
   } else {
-    $skillsTab.append(boxHTML);
-    console.warn("DBE | Fallback used.");
+    $skillsTab.find("div.flexrow").append(boxHTML);
+    console.warn("DBE | Fallback: appended to flexrow.");
   }
 
+  // Save value on change
   $skillsTab.find(".dbe-affinity-value").on("change", async (event) => {
     dbeScrollTop = $skillsTab.scrollTop();
     const key   = event.currentTarget.dataset.flag;
@@ -183,6 +153,7 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     await actor.setFlag("dragonbane-extra-fields", `custom.${key}`, value);
   });
 
+  // Roll on click
   $skillsTab.find(".dbe-roll-affinity").on("click", async (event) => {
     event.preventDefault();
     const key   = event.currentTarget.dataset.flag;
