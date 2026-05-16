@@ -23,7 +23,6 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
   ];
 
   async function rollAffinity(name, value) {
-    // Dropdowns matching Dragonbane's own boon/bane style
     const selectOpts = [0,1,2,3,4,5,6]
       .map(n => `<option value="${n}">${n}</option>`)
       .join("");
@@ -95,17 +94,25 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     });
   }
 
-  // Rows using exact same classes as the system — no inline styles, let CSS handle everything
   const rowsHTML = affinities.map(name => {
-    const key   = `affinity_${name.toLowerCase()}`;
-    const value = f[key] ?? 0;
+    const valueKey = `affinity_${name.toLowerCase()}`;
+    const checkKey = `affinity_check_${name.toLowerCase()}`;
+    const value   = f[valueKey] ?? 0;
+    const checked = f[checkKey] ? "checked" : "";
     return `
       <tr class="sheet-table-data">
-        <td class="checkbox-data icon-data"></td>
+        <td class="checkbox-data icon-data">
+          <input
+            type="checkbox"
+            class="dbe-affinity-check"
+            data-flag="${checkKey}"
+            ${checked}
+          />
+        </td>
         <td class="number-data narrow">
           <input
             class="dbe-affinity-value"
-            data-flag="${key}"
+            data-flag="${valueKey}"
             type="number"
             value="${value}"
             min="0"
@@ -114,7 +121,7 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
         </td>
         <td class="skill-name text-data">
           <a class="dbe-roll-affinity rollable-skill"
-             data-flag="${key}"
+             data-flag="${valueKey}"
              data-name="${name}">
             ${name}
           </a>
@@ -124,7 +131,6 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     `;
   }).join("");
 
-  // Exact same class as the system's skill tables — CSS handles parchment, colors, header banner
   const boxHTML = `
     <table class="sheet-table dbe-way-affinities item-list" style="margin-top: 8px;">
       <tr class="sheet-table-header">
@@ -137,7 +143,6 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     </table>
   `;
 
-  // Append inside the weapon skills column div — same place secondary skills would go
   const $weaponColDiv = $skillsTab.find("table.weapon-skills").parent();
 
   if ($weaponColDiv.length) {
@@ -148,11 +153,19 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     console.warn("DBE | Fallback: appended to flexrow.");
   }
 
-  // Save on change — preserve scroll position across re-render
+  // Save numeric value
   $skillsTab.find(".dbe-affinity-value").on("change", async (event) => {
     dbeScrollTop = $skillsTab.scrollTop();
     const key   = event.currentTarget.dataset.flag;
     const value = parseInt(event.currentTarget.value) || 0;
+    await actor.setFlag("dragonbane-extra-fields", `custom.${key}`, value);
+  });
+
+  // Save checkbox — no scroll jump needed since flags are separate from actor data
+  $skillsTab.find(".dbe-affinity-check").on("change", async (event) => {
+    dbeScrollTop = $skillsTab.scrollTop();
+    const key   = event.currentTarget.dataset.flag;
+    const value = event.currentTarget.checked;
     await actor.setFlag("dragonbane-extra-fields", `custom.${key}`, value);
   });
 
