@@ -1,15 +1,19 @@
 Hooks.on("renderActorSheet", (app, html, data) => {
-  if (app.actor.type !== "character") return;
+  console.log("DBE | Hook fired. Actor type:", app.actor?.type, "| html type:", html?.constructor?.name);
+
+  if (app.actor?.type !== "character") return;
 
   const actor = app.actor;
   const f = actor.getFlag("dragonbane-extra-fields", "custom") || {};
+
+  // V13 passes a raw HTMLElement; V12 passes a jQuery object. Normalise to jQuery.
+  const $html = html instanceof jQuery ? html : $(html);
 
   const affinities = [
     "Blood", "Wood", "Bone", "Iron", "Fire",
     "Stone", "Darkness", "Light", "Chaos", "Order"
   ];
 
-  // Build a row for each affinity
   const rowsHTML = affinities.map(name => {
     const key = `affinity_${name.toLowerCase()}`;
     const checked = f[key] ? "checked" : "";
@@ -32,7 +36,6 @@ Hooks.on("renderActorSheet", (app, html, data) => {
     `;
   }).join("");
 
-  // Box styled to match Dragonbane's fieldset skill boxes
   const boxHTML = `
     <fieldset class="dbe-way-affinities">
       <legend>Way Affinities</legend>
@@ -42,25 +45,42 @@ Hooks.on("renderActorSheet", (app, html, data) => {
     </fieldset>
   `;
 
-  // Find the Skills tab
-  const skillsTab = html.find('.tab[data-tab="skills"]');
+  // Log all fieldsets found so we can see what's available
+  const allFieldsets = $html.find("fieldset");
+  console.log("DBE | Fieldsets found:", allFieldsets.length);
+  allFieldsets.each(function() {
+    console.log("DBE |  -", $(this).find("legend").text().trim());
+  });
 
-  // Find the Weapon Skills fieldset by scanning legend text
-  const weaponSkillsBox = skillsTab.find("fieldset").filter(function () {
+  // Also log tab structure
+  const allTabs = $html.find("[data-tab]");
+  console.log("DBE | Tabs found:", allTabs.length);
+  allTabs.each(function() {
+    console.log("DBE |  - tab:", $(this).attr("data-tab"));
+  });
+
+  // Find the Skills tab
+  const skillsTab = $html.find('[data-tab="skills"]');
+  console.log("DBE | Skills tab found:", skillsTab.length > 0);
+
+  // Find Weapon Skills fieldset
+  const weaponSkillsBox = (skillsTab.length ? skillsTab : $html).find("fieldset").filter(function () {
     return $(this).find("legend").text().toLowerCase().includes("weapon");
   }).last();
 
+  console.log("DBE | Weapon Skills box found:", weaponSkillsBox.length > 0);
+
   if (weaponSkillsBox.length) {
-    // Insert immediately after the Weapon Skills box
     weaponSkillsBox.after(boxHTML);
+    console.log("DBE | Way Affinities box inserted after Weapon Skills.");
   } else {
-    // Fallback: log a warning and append to the tab so you can see it appeared
-    console.warn("Dragonbane Extra Fields | Could not find Weapon Skills box. Appending to skills tab instead.");
-    skillsTab.append(boxHTML);
+    // Fallback: append to skills tab or whole sheet
+    const target = skillsTab.length ? skillsTab : $html.find(".sheet-body");
+    target.append(boxHTML);
+    console.warn("DBE | Could not find Weapon Skills box — appended to fallback target.");
   }
 
-  // Save each checkbox when clicked — flags only, never touches the actor's skill data
-  html.find(".dbe-way-affinities input[type='checkbox']").on("change", async (event) => {
+  $html.find(".dbe-way-affinities input[type='checkbox']").on("change", async (event) => {
     const key = event.currentTarget.dataset.flag;
     const value = event.currentTarget.checked;
     await actor.setFlag("dragonbane-extra-fields", `custom.${key}`, value);
