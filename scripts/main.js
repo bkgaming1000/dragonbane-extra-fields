@@ -2,7 +2,6 @@ console.log("DBE | Script file loaded!");
 
 let dbeScrollTop = 0;
 
-// Pairs: changing one auto-sets the other to 20 - value
 const AFFINITY_PAIRS = {
   "affinity_blood":    "affinity_stone",
   "affinity_stone":    "affinity_blood",
@@ -37,54 +36,47 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
   ];
 
   async function rollAffinity(name, value) {
-    const selectOpts = [0,1,2,3,4,5,6]
-      .map(n => `<option value="${n}">${n}</option>`)
-      .join("");
+    // Use the exact same template and dialog style as the system
+    const dialogData = {
+      banes: [],
+      boons: [],
+      fillerBanes: 0,
+      fillerBoons: 0
+    };
 
-    let boons = 0;
-    let banes = 0;
+    const title  = `${name} Way Affinity`;
+    const label  = game.i18n.localize("DoD.ui.dialog.skillRollLabel");
 
-    const confirmed = await foundry.applications.api.DialogV2.wait({
-      window: { title: `${name} Way Affinity` },
-      content: `
-        <form class="standard-form">
-          <div class="form-group">
-            <label>Boons</label>
-            <select id="dbe-boons">${selectOpts}</select>
-          </div>
-          <div class="form-group">
-            <label>Banes</label>
-            <select id="dbe-banes">${selectOpts}</select>
-          </div>
-        </form>
-      `,
-      buttons: [
-        {
-          action: "roll",
-          label: "Roll",
-          icon: "fas fa-dice-d20",
-          default: true,
-          callback: (event, button, dialog) => {
-            boons = parseInt(dialog.querySelector("#dbe-boons").value) || 0;
-            banes = parseInt(dialog.querySelector("#dbe-banes").value) || 0;
-            return true;
-          }
-        },
-        {
-          action: "cancel",
-          label: "Cancel",
-          icon: "fas fa-times"
-        }
-      ]
+    // Render the system's own roll dialog template
+    const content = await renderTemplate(
+      "systems/dragonbane/templates/partials/roll-dialog.hbs",
+      dialogData
+    );
+
+    // Use DialogV2.input() exactly as the system does
+    const values = await foundry.applications.api.DialogV2.input({
+      window: { title },
+      content,
+      ok: { label }
     });
 
-    if (!confirmed || confirmed === "cancel") return;
+    if (values === null) return; // user closed dialog
 
-    const net = boons - banes;
+    // Process result exactly as DoDTest.processDialogOptions does
+    const expanded    = foundry.utils.expandObject(values);
+    const boons       = Object.entries(expanded.boons ?? {}).filter(([,v]) => v).map(([k]) => k);
+    const banes       = Object.entries(expanded.banes ?? {}).filter(([,v]) => v).map(([k]) => k);
+    const extraBoons  = Number(expanded.extraBoons ?? 0);
+    const extraBanes  = Number(expanded.extraBanes ?? 0);
+
+    const totalBoons = boons.length + extraBoons;
+    const totalBanes = banes.length + extraBanes;
+
+    // Format formula exactly as DoDTest.formatRollFormula does
     let formula;
-    if (net > 0)      formula = `${net + 1}d20kl`;
-    else if (net < 0) formula = `${Math.abs(net) + 1}d20kh`;
-    else              formula = "1d20";
+    if (totalBanes > totalBoons)      formula = `${1 + totalBanes - totalBoons}d20kh`;
+    else if (totalBoons > totalBanes) formula = `${1 + totalBoons - totalBanes}d20kl`;
+    else                              formula = "d20";
 
     const roll    = await new Roll(formula).evaluate();
     const result  = roll.total;
@@ -92,28 +84,24 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     const demon   = result === 20;
     const success = result <= value && !demon;
 
+    // Use the system's own localisation strings for outcomes
     let outcome;
-    if (dragon)       outcome = "🐉 Dragon Roll! Critical Success!";
-    else if (demon)   outcome = "😈 Demon Roll! Critical Failure!";
-    else if (success) outcome = "✅ Success";
-    else              outcome = "❌ Failure";
-
-    let flavorExtra = "";
-    if (net > 0)      flavorExtra = ` &mdash; ${boons} Boon${boons !== 1 ? "s" : ""}`;
-    else if (net < 0) flavorExtra = ` &mdash; ${banes} Bane${banes !== 1 ? "s" : ""}`;
+    if (dragon)       outcome = game.i18n.localize("DoD.roll.dragon");
+    else if (demon)   outcome = game.i18n.localize("DoD.roll.demon");
+    else if (success) outcome = game.i18n.localize("DoD.roll.success");
+    else              outcome = game.i18n.localize("DoD.roll.failure");
 
     await roll.toMessage({
       speaker: ChatMessage.getSpeaker({ actor }),
-      flavor: `<strong>${name} Way Affinity</strong> (${value})${flavorExtra}<br>${outcome}`
+      flavor: `<strong>${name} Way Affinity</strong> (${value})<br>${outcome}`
     });
   }
 
   const rowsHTML = affinities.map(name => {
     const valueKey = `affinity_${name.toLowerCase()}`;
     const checkKey = `affinity_check_${name.toLowerCase()}`;
-    // Default to 10 visually — only persisted once the player changes a value
-    const value   = f[valueKey] ?? 10;
-    const checked = f[checkKey] ? "checked" : "";
+    const value    = f[valueKey] ?? 10;
+    const checked  = f[checkKey] ? "checked" : "";
     return `
       <tr class="sheet-table-data">
         <td class="checkbox-data icon-data">
@@ -170,18 +158,13 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
   // Save numeric value and auto-update paired affinity
   $skillsTab.find(".dbe-affinity-value").on("change", async (event) => {
     dbeScrollTop = $skillsTab.scrollTop();
-
-    const key      = event.currentTarget.dataset.flag;
-    const value    = Math.max(0, Math.min(20, parseInt(event.currentTarget.value) || 0));
-    const pairKey  = AFFINITY_PAIRS[key];
+    const key       = event.currentTarget.dataset.flag;
+    const value     = Math.max(0, Math.min(20, parseInt(event.currentTarget.value) || 0));
+    const pairKey   = AFFINITY_PAIRS[key];
     const pairValue = 20 - value;
 
-    // Update partner input in DOM immediately for instant feedback
-    $skillsTab
-      .find(`.dbe-affinity-value[data-flag="${pairKey}"]`)
-      .val(pairValue);
+    $skillsTab.find(`.dbe-affinity-value[data-flag="${pairKey}"]`).val(pairValue);
 
-    // Save both in one update call — single re-render, no flicker
     await actor.update({
       [`flags.dragonbane-extra-fields.custom.${key}`]:     value,
       [`flags.dragonbane-extra-fields.custom.${pairKey}`]: pairValue,
