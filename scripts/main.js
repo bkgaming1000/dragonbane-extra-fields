@@ -1,6 +1,5 @@
 console.log("DBE | Script file loaded!");
 
-// Store scroll position across re-renders
 let dbeScrollTop = 0;
 
 Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
@@ -11,7 +10,6 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
 
   const $html = html instanceof jQuery ? html : $(html);
 
-  // Restore scroll position after re-render
   const $skillsTab = $html.find('[data-tab="skills"]').first();
   if (dbeScrollTop > 0) {
     $skillsTab.scrollTop(dbeScrollTop);
@@ -41,20 +39,33 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     });
   }
 
-  const rowsHTML = affinities.map(name => {
+  // Sniff the colour scheme from an existing skill row so we match exactly
+  const existingSkillRow = $html.find("tr.skill-item, tr.weapon-item, tbody tr").not(".sheet-table-header").first();
+  const rowBg    = existingSkillRow.css("background-color") || "transparent";
+  const rowColor = existingSkillRow.css("color") || "#f0e6d3";
+
+  // Sniff the header style from an existing sheet-table-header
+  const existingHeader = $html.find("tr.sheet-table-header").first();
+  const headerBg     = existingHeader.css("background-color") || "#5a3e2b";
+  const headerColor  = existingHeader.css("color") || "#f0e6d3";
+  const headerBgImg  = existingHeader.css("background-image") || "none";
+
+  const rowsHTML = affinities.map((name, i) => {
     const key   = `affinity_${name.toLowerCase()}`;
     const value = f[key] ?? 0;
+    // Alternate row shading to match other tables
+    const bg = i % 2 === 0 ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.08)";
     return `
-      <tr>
-        <td style="padding:2px 4px; width:100%;">
+      <tr class="dbe-affinity-row" style="background:${bg};">
+        <td style="padding:3px 6px; color:${rowColor}; width:100%;">
           <a class="dbe-roll-affinity rollable"
              data-flag="${key}"
              data-name="${name}"
-             style="cursor:pointer;">
+             style="cursor:pointer; color:${rowColor}; text-decoration:none;">
             ${name}
           </a>
         </td>
-        <td style="padding:2px 4px; text-align:right;">
+        <td style="padding:3px 6px; text-align:right;">
           <input
             type="number"
             class="dbe-affinity-value"
@@ -62,42 +73,53 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
             value="${value}"
             min="0"
             max="99"
-            style="width:44px; text-align:center;"
+            style="
+              width: 44px;
+              text-align: center;
+              color: ${rowColor};
+              background: rgba(255,255,255,0.1);
+              border: 1px solid rgba(255,255,255,0.25);
+              border-radius: 3px;
+              padding: 1px 2px;
+            "
           />
         </td>
       </tr>
     `;
   }).join("");
 
-  // Use the same table/header classes as Dragonbane's own skill tables
   const boxHTML = `
-    <table class="dbe-way-affinities" style="width:100%; margin-top:8px;">
+    <table class="dbe-way-affinities" style="width:100%; margin-top:8px; border-collapse:collapse;">
       <tbody>
-        <tr class="sheet-table-header">
-          <th class="text-header" colspan="2">Way Affinities</th>
+        <tr class="sheet-table-header" style="
+          background-color: ${headerBg};
+          background-image: ${headerBgImg};
+          color: ${headerColor};
+        ">
+          <th class="text-header" colspan="2" style="
+            color: ${headerColor};
+            padding: 4px 6px;
+            text-align: left;
+            font-variant: small-caps;
+            letter-spacing: 0.05em;
+          ">Way Affinities</th>
         </tr>
         ${rowsHTML}
       </tbody>
     </table>
   `;
 
-  // Find Weapon Skills table and insert directly after it,
-  // staying inside its column div
   const weaponTable = $html.find("th.text-header").filter(function() {
     return $(this).text().toLowerCase().includes("weapon");
   }).closest("table");
 
-  console.log("DBE | Weapon Skills table found:", weaponTable.length > 0);
-
   if (weaponTable.length) {
     weaponTable.after(boxHTML);
-    console.log("DBE | Way Affinities inserted after Weapon Skills table.");
   } else {
     $skillsTab.append(boxHTML);
     console.warn("DBE | Fallback used — appended to skills tab.");
   }
 
-  // Save numeric value — store scroll position first to survive re-render
   $html.find(".dbe-affinity-value").on("change", async (event) => {
     dbeScrollTop = $skillsTab.scrollTop();
     const key   = event.currentTarget.dataset.flag;
@@ -105,7 +127,6 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     await actor.setFlag("dragonbane-extra-fields", `custom.${key}`, value);
   });
 
-  // Roll when name is clicked
   $html.find(".dbe-roll-affinity").on("click", async (event) => {
     event.preventDefault();
     const key   = event.currentTarget.dataset.flag;
