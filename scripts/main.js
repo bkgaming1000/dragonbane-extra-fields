@@ -46,30 +46,36 @@ async function initMainTab(app, $html, actor) {
     <tr class="dbe-pp-row">
       <th>Power Points</th>
       <td>
-        <a class="dbe-pp-current"
-           style="cursor:pointer;"
-           title="Left-click to spend, right-click to recover">${ppCurrent}</a>
+        <input
+          class="dbe-pp-current"
+          type="number"
+          value="${ppCurrent}"
+          min="0"
+          max="${power}"
+          title="Type to set, left-click to spend, right-click to recover"
+          style="width:2em; text-align:center;"
+        />
         / <span class="dbe-pp-max">${power}</span>
       </td>
     </tr>
   `);
 
+  // ── Save Power when changed ───────────────────────────────────────────────
   $mainTab.find(".dbe-power-input").on("change", async (event) => {
     const wil      = actor.system.attributes.wil.value ?? 0;
     const newPower = Math.max(0, Math.min(wil, parseInt(event.currentTarget.value) || 0));
-    const ppCur    = Math.min(f.powerPointsCurrent ?? 0, newPower);
+    const ppCur    = Math.min(
+      parseInt($mainTab.find(".dbe-pp-current").val()) || 0,
+      newPower
+    );
 
-    // Clamp current WP to the new max (WIL - Power)
     const newWPMax   = Math.max(0, wil - newPower);
     const newWPValue = Math.min(actor.system.willPoints.value ?? 0, newWPMax);
 
-    // Update DOM immediately
     event.currentTarget.value = newPower;
     $mainTab.find(".dbe-pp-max").text(newPower);
-    $mainTab.find(".dbe-pp-current").text(ppCur);
+    $mainTab.find(".dbe-pp-current").val(ppCur).attr("max", newPower);
 
-    // Apply an Active Effect to reduce willPoints.max — this is the correct
-    // Foundry way to modify a derived stat without fighting prepareDerivedData
     const existingEffect = actor.effects.find(e => e.name === DBE_POWER_EFFECT);
 
     if (newPower > 0) {
@@ -79,7 +85,6 @@ async function initMainTab(app, $html, actor) {
         value:    String(-newPower),
         priority: 20
       }];
-
       if (existingEffect) {
         await existingEffect.update({ changes });
       } else {
@@ -92,11 +97,9 @@ async function initMainTab(app, $html, actor) {
         }]);
       }
     } else {
-      // Power reduced to 0 — remove the effect entirely
       if (existingEffect) await existingEffect.delete();
     }
 
-    // Save flags and clamp WP value in one update
     await actor.update({
       "flags.dragonbane-extra-fields.custom.power":              newPower,
       "flags.dragonbane-extra-fields.custom.powerPointsCurrent": ppCur,
@@ -104,23 +107,11 @@ async function initMainTab(app, $html, actor) {
     });
   });
 
-  // Left-click: spend a Power Point; right-click: recover one
-  $mainTab.find(".dbe-pp-current").on("click contextmenu", async (event) => {
-    event.preventDefault();
-    const f2       = actor.getFlag("dragonbane-extra-fields", "custom") || {};
-    const maxPP    = f2.power ?? 0;
-    const curPP    = f2.powerPointsCurrent ?? 0;
-
-    let newPP;
-    if (event.type === "click") {
-      if (curPP <= 0) return;
-      newPP = curPP - 1;
-    } else {
-      if (curPP >= maxPP) return;
-      newPP = curPP + 1;
-    }
-
-    $mainTab.find(".dbe-pp-current").text(newPP);
+  // ── Save PP when typed ────────────────────────────────────────────────────
+  $mainTab.find(".dbe-pp-current").on("change", async (event) => {
+    const maxPP = parseInt($mainTab.find(".dbe-pp-max").text()) || 0;
+    const newPP = Math.max(0, Math.min(maxPP, parseInt(event.currentTarget.value) || 0));
+    event.currentTarget.value = newPP;
     await actor.setFlag("dragonbane-extra-fields", "custom.powerPointsCurrent", newPP);
   });
 }
