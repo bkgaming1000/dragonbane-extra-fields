@@ -1,5 +1,8 @@
 console.log("DBE | Script file loaded!");
 
+// Store scroll position across re-renders
+let dbeScrollTop = 0;
+
 Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
   if (app.actor?.type !== "character") return;
 
@@ -8,12 +11,17 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
 
   const $html = html instanceof jQuery ? html : $(html);
 
+  // Restore scroll position after re-render
+  const $skillsTab = $html.find('[data-tab="skills"]').first();
+  if (dbeScrollTop > 0) {
+    $skillsTab.scrollTop(dbeScrollTop);
+  }
+
   const affinities = [
     "Blood", "Wood", "Bone", "Iron", "Fire",
     "Stone", "Darkness", "Light", "Chaos", "Order"
   ];
 
-  // Roll d20 against the affinity value, matching Dragonbane's skill roll style
   async function rollAffinity(name, value) {
     const roll = await new Roll("1d20").evaluate();
     const result = roll.total;
@@ -37,7 +45,7 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     const key   = `affinity_${name.toLowerCase()}`;
     const value = f[key] ?? 0;
     return `
-      <tr class="dbe-affinity-row">
+      <tr>
         <td style="padding:2px 4px; width:100%;">
           <a class="dbe-roll-affinity rollable"
              data-flag="${key}"
@@ -61,44 +69,43 @@ Hooks.on("renderDoDCharacterSheet", (app, html, data) => {
     `;
   }).join("");
 
+  // Use the same table/header classes as Dragonbane's own skill tables
   const boxHTML = `
-    <div class="dbe-way-affinities" style="margin-top:8px;">
-      <table style="width:100%;">
-        <tbody>
-          <tr class="sheet-table-header">
-            <th class="text-header" colspan="2">Way Affinities</th>
-          </tr>
-          ${rowsHTML}
-        </tbody>
-      </table>
-    </div>
+    <table class="dbe-way-affinities" style="width:100%; margin-top:8px;">
+      <tbody>
+        <tr class="sheet-table-header">
+          <th class="text-header" colspan="2">Way Affinities</th>
+        </tr>
+        ${rowsHTML}
+      </tbody>
+    </table>
   `;
 
-  // Find the Weapon Skills header, go up to: table -> column div -> columns container div
-  const weaponHeader = $html.find("th.text-header").filter(function() {
+  // Find Weapon Skills table and insert directly after it,
+  // staying inside its column div
+  const weaponTable = $html.find("th.text-header").filter(function() {
     return $(this).text().toLowerCase().includes("weapon");
-  });
+  }).closest("table");
 
-  // Two .parent() calls: first gets the column div, second gets the two-column container
-  const columnsContainer = weaponHeader.closest("table").parent("div").parent("div");
+  console.log("DBE | Weapon Skills table found:", weaponTable.length > 0);
 
-  if (columnsContainer.length) {
-    columnsContainer.after(boxHTML);
-    console.log("DBE | Way Affinities inserted below the two-column block.");
+  if (weaponTable.length) {
+    weaponTable.after(boxHTML);
+    console.log("DBE | Way Affinities inserted after Weapon Skills table.");
   } else {
-    const skillsTab = $html.find('[data-tab="skills"]').first();
-    skillsTab.append(boxHTML);
+    $skillsTab.append(boxHTML);
     console.warn("DBE | Fallback used — appended to skills tab.");
   }
 
-  // Save numeric value when it changes
+  // Save numeric value — store scroll position first to survive re-render
   $html.find(".dbe-affinity-value").on("change", async (event) => {
+    dbeScrollTop = $skillsTab.scrollTop();
     const key   = event.currentTarget.dataset.flag;
     const value = parseInt(event.currentTarget.value) || 0;
     await actor.setFlag("dragonbane-extra-fields", `custom.${key}`, value);
   });
 
-  // Roll when the affinity name is clicked
+  // Roll when name is clicked
   $html.find(".dbe-roll-affinity").on("click", async (event) => {
     event.preventDefault();
     const key   = event.currentTarget.dataset.flag;
